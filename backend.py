@@ -1,51 +1,75 @@
 from flask import Flask, request, jsonify
-from flask_mysqldb import MySQL
 from flask_cors import CORS
+import mysql.connector
+from mysql.connector import Error
 
 app = Flask(__name__)
-CORS(app)
+CORS(app)  # Дозволити CORS для всіх доменів
 
-# Налаштування MySQL для віддаленого сервера
-app.config['MYSQL_HOST'] = 'localhost'  # IP сервера MySQL
-app.config['MYSQL_USER'] = 'new_user'  # Ім'я користувача MySQL
-app.config['MYSQL_PASSWORD'] = 'strong_password'  # Пароль користувача MySQL
-app.config['MYSQL_DB'] = 'simple_Ad'  # Назва бази даних
+# Функція для підключення до бази даних
+def connect_to_db():
+    return mysql.connector.connect(
+        user='admin',
+        password='123qwe123',
+        host='mysql.c1o4s6wke573.us-east-1.rds.amazonaws.com',
+        database='ads'
+    )
 
-mysql = MySQL(app)
+# Створення таблиці
+@app.route('/create_table', methods=['POST'])
+def create_table():
+    conn = None
+    cursor = None
+    try:
+        conn = connect_to_db()
+        cursor = conn.cursor()
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS ad (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                ip_address VARCHAR(45) NOT NULL,
+                ad_text TEXT NOT NULL
+            )
+        """)
+        return jsonify({"message": "Таблицю 'ad' успішно створено!"}), 201
+    except Error as err:
+        return jsonify({"error": str(err)}), 500
+    finally:
+        if cursor:
+            cursor.close()
+        if conn:
+            conn.close()
 
-# Отримати всі оголошення
-@app.route('/ads', methods=['GET'])
-def get_ads():
-    cur = mysql.connection.cursor()
-    cur.execute("SELECT id, ip_address, ad_text FROM ads")
-    ads = cur.fetchall()
-    cur.close()
-    return jsonify(ads)
-
-# Додати нове оголошення
+# Додавання оголошення
 @app.route('/ads', methods=['POST'])
 def add_ad():
-    user_ip = request.remote_addr
-    ad_text = request.json.get('ad_text')
+    data = request.json
+    ip_address = data.get('ip_address')
+    ad_text = data.get('ad_text')
     
-    cur = mysql.connection.cursor()
-    cur.execute("INSERT INTO ads (ip_address, ad_text) VALUES (%s, %s)", (user_ip, ad_text))
-    mysql.connection.commit()
-    cur.close()
-    
-    return jsonify({'message': 'Ad added successfully'})
+    conn = connect_to_db()
+    cursor = conn.cursor()
+    cursor.execute("INSERT INTO ad (ip_address, ad_text) VALUES (%s, %s)", (ip_address, ad_text))
+    conn.commit()
+    cursor.close()
+    conn.close()
+    return jsonify({"message": "Запис успішно додано!"}), 201
 
-# Видалити оголошення за IP-адресою користувача та ID
-@app.route('/ads/<int:ad_id>', methods=['DELETE'])
-def delete_ad(ad_id):
-    user_ip = request.remote_addr
-    
-    cur = mysql.connection.cursor()
-    cur.execute("DELETE FROM ads WHERE id = %s AND ip_address = %s", (ad_id, user_ip))
-    mysql.connection.commit()
-    cur.close()
-    
-    return jsonify({'message': 'Ad deleted successfully'})
 
+# Отримання всіх оголошень
+@app.route('/ads', methods=['GET'])
+def get_all_ads():
+    conn = connect_to_db()
+    cursor = conn.cursor()
+    cursor.execute("SELECT * FROM ad")
+    ads = cursor.fetchall()
+    cursor.close()
+    conn.close()
+    
+    # Форматування даних для відповіді
+    ads_list = [{"id": ad[0], "ip_address": ad[1], "ad_text": ad[2]} for ad in ads]
+    
+    return jsonify(ads_list), 200
+
+# Запуск сервера
 if __name__ == '__main__':
-    app.run(debug=True, host='0.0.0.0')
+    app.run(host='0.0.0.0', port=5000)  # Змінюйте порт, якщо потрібно
